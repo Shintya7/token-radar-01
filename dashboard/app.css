@@ -10,6 +10,8 @@
   --accent-soft: #fdf0dd;
   --positive: #0e7c66;
   --negative: #b3382e;
+  --warm: #92400e;
+  --warm-soft: #fef3c7;
   --radius-control: 8px;
   --radius-panel: 14px;
   --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -65,6 +67,23 @@ a { color: var(--accent); }
 .fact b { font-family: var(--font-num); font-size: 15px; font-weight: 600; }
 .fact span { color: var(--muted); font-size: 13px; }
 
+/* The category summary strip: one compact card per category, in a single scrollable row, so the
+   strip summarises the board without pushing the table off the screen. A selected card filters the
+   board to its category; selecting it again clears the filter. */
+.cat-strip {
+  display: flex; gap: var(--step-2); overflow-x: auto; padding: var(--step-2) 0 var(--step-3);
+  margin-top: var(--step-4); border-top: 1px solid var(--border); scrollbar-width: thin;
+}
+.cat-card {
+  flex: none; width: 208px; text-align: left; padding: var(--step-3); display: grid; gap: 2px;
+  border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface);
+}
+.cat-card:hover { border-color: var(--accent); }
+.cat-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.cat-card b { font-size: 13px; font-weight: 600; }
+.cat-n { font-family: var(--font-num); font-size: 12px; color: var(--muted); }
+.cat-top { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--step-3); padding: var(--step-4) 0; border-top: 1px solid var(--border); }
 .field { display: grid; gap: var(--step-1); }
 .field label { color: var(--muted); font-size: 12px; }
@@ -106,6 +125,10 @@ tbody tr[data-selected="true"] { background: var(--accent-soft); box-shadow: ins
   color: var(--accent); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
 }
 .badge.plain { background: transparent; color: var(--muted); font-weight: 400; }
+/* Launch-readiness badges: Hot is the filled accent, Warm is a pale amber, Watch is a quiet outline. */
+.badge.readiness-hot { background: var(--accent); color: var(--surface); }
+.badge.readiness-warm { background: var(--warm-soft); color: var(--warm); }
+.badge.readiness-watch { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 400; }
 
 .model { margin-top: var(--step-4); padding: var(--step-5); display: grid; gap: var(--step-3); }
 .formula { font-family: var(--font-num); font-size: 13px; line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; background: var(--canvas); border-radius: var(--radius-control); padding: var(--step-3) var(--step-4); }
@@ -113,6 +136,7 @@ tbody tr[data-selected="true"] { background: var(--accent-soft); box-shadow: ins
 .empty p { color: var(--muted); }
 .button { min-height: 36px; padding: 0 var(--step-4); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
 .button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--surface); }
 
 .detail {
   position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 94vw); z-index: 10;
@@ -124,6 +148,7 @@ tbody tr[data-selected="true"] { background: var(--accent-soft); box-shadow: ins
 .detail-head { display: flex; align-items: start; justify-content: space-between; gap: var(--step-4); }
 .detail-head > div { min-width: 0; }
 .detail-head .sub { overflow-wrap: anywhere; }
+.detail-head .badge { margin-top: var(--step-3); }
 .close { flex: none; min-width: 32px; min-height: 32px; padding: 0 var(--step-2); white-space: nowrap; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
 .detail h2 { margin-top: var(--step-1); }
 .detail .sub { margin-top: var(--step-1); }

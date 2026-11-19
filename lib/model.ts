@@ -34,6 +34,14 @@
 //   implied    = max(1, round(base x growthMult x maturityMult x chainMult))
 //
 // The constants are the radar-2 model's, stated in the dashboard and changeable in the model sandbox.
+//
+// Readiness and risk are the same figures read a second way. A row's launch-readiness band (Hot,
+// Warm or Watch) follows from its implied value and its seven-day growth: Hot is a large implied
+// value on its own, or a mid-sized one growing fast; Warm is a mid-sized implied value, or any row
+// growing at least 5% a week; the rest are Watch. The farm plan's eighth step is a risk note read
+// off the same record: a growth spike, a long pre-token history, single-chain concentration, a
+// shrinking TVL, or the ordinary reminder to keep the position small. No protocol name is ever
+// special-cased in either.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -90,6 +98,31 @@ export const MODEL: ModelConstants = {
 /** The model's version label: the dashboard names it and the rules quote it. */
 export const MODEL_VERSION = 'radar-2';
 
+/** A launch-readiness band: how close a row looks to a launch, from its own figures. */
+export type Readiness = 'Hot' | 'Warm' | 'Watch';
+
+/** The readiness band's cut-offs, in the snapshot's own units (dollars, per cent a week). */
+export const READINESS = {
+  hot_implied_usd: 100_000_000,
+  hot_implied_with_growth_usd: 25_000_000,
+  hot_growth_pct: 10,
+  warm_implied_usd: 10_000_000,
+  warm_growth_pct: 5,
+} as const;
+
+/**
+ * A row's launch-readiness band, from its implied value and its seven-day growth alone. Hot is a
+ * large implied value on its own, or a mid-sized one that is growing fast; Warm is a mid-sized
+ * implied value, or any row growing at least 5% a week; the rest are Watch. The dashboard runs
+ * the same function, so the page and the board never disagree about a row's band.
+ */
+export function readinessFor(implied: number, growthPct: number | null): Readiness {
+  const growth = growthPct ?? 0;
+  if (implied >= READINESS.hot_implied_usd || (implied >= READINESS.hot_implied_with_growth_usd && growth >= READINESS.hot_growth_pct)) return 'Hot';
+  if (implied >= READINESS.warm_implied_usd || growth >= READINESS.warm_growth_pct) return 'Warm';
+  return 'Watch';
+}
+
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
 
@@ -117,6 +150,7 @@ export interface BoardRow {
   watchlist: boolean;
   age_days: number | null;
   implied_value_usd: number;
+  readiness: Readiness;
   model: {
     base_multiple: number;
     growth_pct: number;
@@ -142,6 +176,7 @@ export interface RadarRow {
   age_days: number | null;
   watchlist: boolean;
   implied_value_usd: number;
+  readiness: Readiness;
   growth_multiplier: number;
   maturity_multiplier: number;
   chain_multiplier: number;
@@ -296,6 +331,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     watchlist: watchlist.has(s.p.slug),
     age_days: s.age,
     implied_value_usd: s.implied,
+    readiness: readinessFor(s.implied, s.growthPct),
     model: {
       base_multiple: model.base_multiple,
       growth_pct: s.growthPct,
@@ -394,10 +430,56 @@ function actionFor(p: SnapshotProtocol, capital: number, chain: string): string 
 }
 
 /**
- * A protocol's farm plan: seven steps, each an action with a cost and a time. The plan is derived from
+ * The farm plan's eighth step: a risk note read off the protocol's own record. The checks run in
+ * order and the first one that fires names the risk, so every row carries exactly one note: a
+ * growth spike first (a five-fold week is usually a data spike or one large deposit), then a long
+ * pre-token history (five years with no token means the launch may be far away), then single-chain
+ * concentration, then a shrinking TVL, and otherwise the ordinary reminder to keep the position
+ * small until a token is announced. No name is special-cased.
+ */
+export function riskNote(p: SnapshotProtocol, age: number | null): FarmStep {
+  const growth = p.change_7d ?? 0;
+  if (growth >= 500) {
+    return {
+      text: `Risk check: this protocol's TVL jumped more than five-fold in a week, which is usually a data spike or one large deposit — verify the growth on the protocol's own page before you farm it.`,
+      cost: 'free to check',
+      time: '10 minutes',
+    };
+  }
+  if (age !== null && age >= 1825) {
+    return {
+      text: `Risk check: this protocol has run for five years with no token, so a launch may still be far away — farm it only with money you can leave parked for a long time.`,
+      cost: 'free to check',
+      time: '10 minutes',
+    };
+  }
+  if (p.chains.length <= 1) {
+    return {
+      text: `Risk check: this protocol lives on one chain only, so a problem on that chain is a problem for the whole position — do not put your whole farm in it.`,
+      cost: 'free to check',
+      time: '10 minutes',
+    };
+  }
+  if (growth < 0) {
+    return {
+      text: `Risk check: this protocol's TVL shrank this week, so re-check its points page every week and be ready to unwind if the slide continues.`,
+      cost: 'free to check',
+      time: '10 minutes a week',
+    };
+  }
+  return {
+    text: `Risk check: no single risk flag stands out in this protocol's own figures — keep the position small until a token is announced, and never pay to claim.`,
+    cost: 'free to check',
+    time: '10 minutes',
+  };
+}
+
+/**
+ * A protocol's farm plan: eight steps, each an action with a cost and a time. The plan is derived from
  * the protocol's own record (category, chains, TVL, age), never from a hand-written list of names.
  * Gas figures follow the protocol's own chain: a transaction on Ethereum costs dollars, on an L2 or
- * Solana it costs cents, and the plan says which.
+ * Solana it costs cents, and the plan says which. The eighth step is the risk note: the one risk
+ * this protocol's own figures flag, so the plan ends on what to watch, not only on what to do.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const chain = chainOf(p);
@@ -441,6 +523,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
       cost: 'nothing but the log',
       time: '5 minutes',
     },
+    riskNote(p, age),
   ];
 }
 
@@ -476,6 +559,7 @@ export function radarRow(row: BoardRow): RadarRow {
     age_days: row.age_days,
     watchlist: row.watchlist,
     implied_value_usd: row.implied_value_usd,
+    readiness: row.readiness,
     growth_multiplier: row.model.growth_multiplier,
     maturity_multiplier: row.model.maturity_multiplier,
     chain_multiplier: row.model.chain_multiplier,
