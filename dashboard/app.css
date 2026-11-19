@@ -84,6 +84,19 @@ a { color: var(--accent); }
 .cat-n { font-family: var(--font-num); font-size: 12px; color: var(--muted); }
 .cat-top { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* The methodology panel: a collapsible explainer above the table, so the method is visible without
+   scrolling to the formula below it. The live figures are the board's own numbers, recomputed on
+   every render; the panel is a <details> so it can be collapsed out of the way. */
+.method { margin-top: var(--step-4); padding: var(--step-4) var(--step-5); display: grid; gap: var(--step-3); }
+.method summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--step-3); }
+.method summary b { font-size: 16px; font-weight: 650; }
+.method-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--step-3); }
+.method-stats .fact { display: grid; gap: 2px; border-left: 1px solid var(--border); padding-left: var(--step-3); }
+.method-stats .fact:first-child { border-left: 0; padding-left: 0; }
+.method-steps { margin: 0; padding-left: var(--step-5); display: grid; gap: var(--step-2); }
+.method-steps li { padding-left: var(--step-1); }
+.method-steps b { font-weight: 600; }
+
 .controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--step-3); padding: var(--step-4) 0; border-top: 1px solid var(--border); }
 .field { display: grid; gap: var(--step-1); }
 .field label { color: var(--muted); font-size: 12px; }

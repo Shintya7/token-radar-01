@@ -1,8 +1,9 @@
 // Token Radar's radar-2 dashboard. It reads window.RADAR (written beside dashboard/ by main.ts) and
 // renders the ranked board, a filterable table (search, category, chain, watchlist-only), a
 // per-protocol detail drawer with the model's own inputs and the protocol's farm plan, a category
-// summary strip (count, median implied value and top protocol per category), a Movers sort by
-// seven-day TVL change, a CSV export of the rows on screen, and a launch-readiness badge per row.
+// summary strip (count, median implied value and top protocol per category), a collapsible
+// methodology panel with the board's live figures, a Movers sort by seven-day TVL change, a CSV
+// export of the rows on screen, and a launch-readiness badge per row.
 // No network: every byte it shows is in data.js.
 (function () {
   'use strict';
@@ -314,6 +315,51 @@
     return el('section', { class: 'cat-strip', 'aria-label': 'Category summary' }, cards);
   }
 
+  // The methodology panel's live figures: the board's own numbers, recomputed on every render, never
+  // typed in. Total TVL covered and total implied value are sums over the board; the median seven-day
+  // growth and the median age are the upper middle values of the rows that carry them; the readiness
+  // split counts the bands the board itself assigns. A figure the page cannot recompute from the
+  // rows on screen does not belong in this panel.
+  function boardStats() {
+    var rows = DATA.rows;
+    var tvl = rows.reduce(function (s, r) { return s + r.tvl_usd; }, 0);
+    var implied = rows.reduce(function (s, r) { return s + r.implied_value_usd; }, 0);
+    var growths = rows.map(function (r) { return r.change_7d; }).filter(function (g) { return g !== null && g !== undefined; }).sort(function (a, b) { return a - b; });
+    var medianGrowth = growths.length ? growths[Math.floor(growths.length / 2)] : null;
+    var ages = rows.map(function (r) { return r.age_days; }).filter(function (a) { return a !== null && a !== undefined; }).sort(function (a, b) { return a - b; });
+    var medianAge = ages.length ? ages[Math.floor(ages.length / 2)] : null;
+    var bands = { Hot: 0, Warm: 0, Watch: 0 };
+    rows.forEach(function (r) { bands[readinessOf(r)] += 1; });
+    return { tvl: tvl, implied: implied, medianGrowth: medianGrowth, medianAge: medianAge, bands: bands };
+  }
+
+  // The methodology panel: the implied-value formula in plain words, beside the board's own live
+  // figures. It is a <details> so a reader who only wants the table can collapse it, and it opens
+  // on the board so the method is visible without a click. The full formula with every constant
+  // stays below the table; this panel is the short version a reader can check in a minute.
+  function methodPanel() {
+    var s = boardStats();
+    var stats = el('div', { class: 'method-stats' },
+      el('div', { class: 'fact' }, el('span', { text: 'Total TVL covered' }), el('b', { text: fmtUsd(s.tvl) })),
+      el('div', { class: 'fact' }, el('span', { text: 'Median 7d growth' }), el('b', { text: fmtPct(s.medianGrowth) })),
+      el('div', { class: 'fact' }, el('span', { text: 'Total implied value' }), el('b', { text: fmtUsd(s.implied) })),
+      el('div', { class: 'fact' }, el('span', { text: 'Median age with no token' }), el('b', { text: fmtAge(s.medianAge) })),
+      el('div', { class: 'fact' }, el('span', { text: 'Readiness: Hot / Warm / Watch' }), el('b', { text: s.bands.Hot + ' / ' + s.bands.Warm + ' / ' + s.bands.Watch }))
+    );
+    var steps = el('ol', { class: 'method-steps' },
+      el('li', null, el('b', { text: 'Start with TVL. ' }), 'Take a quarter of the protocol\u2019s TVL as the base value.'),
+      el('li', null, el('b', { text: 'Adjust for growth. ' }), 'A growing protocol scores higher, but the boost saturates: a 4,000% week is treated as a data spike, not forty times hotter.'),
+      el('li', null, el('b', { text: 'Adjust for age. ' }), 'A protocol scores best around 540 days old — proven, but young enough to still launch. Older with no token is discounted, not rewarded.'),
+      el('li', null, el('b', { text: 'Adjust for breadth. ' }), 'Each extra chain adds 3%, up to five extra chains: more places to farm, and more venues that would want the token.')
+    );
+    return el('details', { class: 'panel method', open: 'open' },
+      el('summary', null, el('b', { text: 'How the radar works' }), el('span', { class: 'sub', text: 'The implied-value formula in plain words, with the board\u2019s own live figures.' })),
+      stats,
+      steps,
+      el('p', { class: 'sub', text: 'Implied value is a model, not a price, and no protocol name is ever special-cased. The full formula with every constant is below the table.' })
+    );
+  }
+
   function controls() {
     var categories = Array.from(new Set(DATA.rows.map(function (r) { return r.category || 'Other'; }))).sort();
     var chains = Array.from(new Set(DATA.rows.reduce(function (acc, r) { return acc.concat(r.chains || []); }, []))).sort();
@@ -396,7 +442,7 @@
         )),
         el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }),
         el('td', { class: 'num ' + growthClass, text: growth }),
-        el('td', { class: 'num', text: fmtAge(r.age_days) }),
+        el('td', { class: 'num', text: fmtAge(r.age_days), title: r.age_days === null ? 'First listed: unknown' : r.age_days + ' days since first listed' + (r.listed_at ? ' (' + r.listed_at + ')' : '') }),
         el('td', null, el('div', { class: 'implied' },
           el('div', { class: 'bar', 'aria-hidden': 'true' }, el('i', { style: 'width:' + Math.max(3, Math.round((r.implied_value_usd / max) * 100)) + '%' })),
           el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) })
@@ -520,6 +566,7 @@
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
     shell.appendChild(lede());
+    shell.appendChild(methodPanel());
     shell.appendChild(categoryStrip());
     shell.appendChild(controls());
     shell.appendChild(state.tab === 'pre-token' ? boardTable() : liveTable());
