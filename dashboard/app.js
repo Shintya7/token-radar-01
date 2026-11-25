@@ -1,4 +1,4 @@
-// Token Radar's radar-2 dashboard. It reads window.RADAR (written beside dashboard/ by main.ts) and
+// Token Radar's radar-3 dashboard. It reads window.RADAR (written beside dashboard/ by main.ts) and
 // renders the ranked board, a filterable table (search, category, chain, watchlist-only), a
 // per-protocol detail drawer with the model's own inputs and the protocol's farm plan, a category
 // summary strip (count, median implied value and top protocol per category), a collapsible
@@ -30,11 +30,13 @@
     if (days >= 365) return (days / 365).toFixed(1) + 'y';
     return Math.max(0, Math.round(days)) + 'd';
   }
-  // The radar-2 model in one function: the page recomputes a row from the snapshot figures and checks
+  // The radar-3 model in one function: the page recomputes a row from the snapshot figures and checks
   // the number board.json carries, so the page's code and the board's data are visibly the same
-  // arithmetic. Growth saturates (tanh), maturity is a hump peaking at 540 days, breadth adds 3% a
-  // chain up to five extra chains.
+  // arithmetic. The base multiple is the row's own fitted multiple (its category's, or the fitted
+  // global prior); growth saturates (tanh), maturity is a hump peaking at 540 days, breadth adds
+  // 3% a chain up to five extra chains.
   function impliedOf(row, model) {
+    var baseMultiple = row.base_multiple == null ? model.base_multiple : row.base_multiple;
     var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
     var growthMult = 1 + model.growth_weight * Math.tanh(growth / model.growth_scale);
     var age = row.age_days === null || row.age_days === undefined ? model.unknown_age_days : row.age_days;
@@ -42,7 +44,7 @@
     var maturity = model.maturity_floor + model.maturity_range * ratio * Math.exp(1 - ratio);
     var chains = row.chains ? row.chains.length : 0;
     var chainMult = 1 + model.chain_step * Math.min(Math.max(chains - 1, 0), model.chain_cap);
-    return Math.max(1, Math.round(row.tvl_usd * model.base_multiple * growthMult * maturity * chainMult));
+    return Math.max(1, Math.round(row.tvl_usd * baseMultiple * growthMult * maturity * chainMult));
   }
 
   // A row's launch-readiness band, from the same two figures the model scores: implied value and
@@ -339,6 +341,10 @@
   // stays below the table; this panel is the short version a reader can check in a minute.
   function methodPanel() {
     var s = boardStats();
+    var cal = DATA.calibration || { n: 0, global_multiple: 0, median_ratio: 0, categories: [], held_out: { median_log_error: 0, baseline_median_log_error: 0 } };
+    var calMults = cal.categories.map(function (c) { return c.multiple; });
+    var calMin = calMults.length ? Math.min.apply(null, calMults).toFixed(2) : 'n/a';
+    var calMax = calMults.length ? Math.max.apply(null, calMults).toFixed(2) : 'n/a';
     var stats = el('div', { class: 'method-stats' },
       el('div', { class: 'fact' }, el('span', { text: 'Total TVL covered' }), el('b', { text: fmtUsd(s.tvl) })),
       el('div', { class: 'fact' }, el('span', { text: 'Median 7d growth' }), el('b', { text: fmtPct(s.medianGrowth) })),
@@ -347,7 +353,7 @@
       el('div', { class: 'fact' }, el('span', { text: 'Readiness: Hot / Warm / Watch' }), el('b', { text: s.bands.Hot + ' / ' + s.bands.Warm + ' / ' + s.bands.Watch }))
     );
     var steps = el('ol', { class: 'method-steps' },
-      el('li', null, el('b', { text: 'Start with TVL. ' }), 'Take a quarter of the protocol\u2019s TVL as the base value.'),
+      el('li', null, el('b', { text: 'Start with TVL. ' }), 'The base value is the protocol\u2019s TVL times a multiple fitted from the ' + cal.n + ' live-token protocols in this snapshot (median mcap/TVL ' + cal.median_ratio.toFixed(2) + '\u00d7): ' + cal.global_multiple.toFixed(2) + '\u00d7 overall, ' + calMin + '\u00d7\u2013' + calMax + '\u00d7 by category. Leave-one-out median log error ' + cal.held_out.median_log_error.toFixed(2) + ', against ' + cal.held_out.baseline_median_log_error.toFixed(2) + ' for a flat 0.25\u00d7.'),
       el('li', null, el('b', { text: 'Adjust for growth. ' }), 'A growing protocol scores higher, but the boost saturates: a 4,000% week is treated as a data spike, not forty times hotter.'),
       el('li', null, el('b', { text: 'Adjust for age. ' }), 'A protocol scores best around 540 days old — proven, but young enough to still launch. Older with no token is discounted, not rewarded.'),
       el('li', null, el('b', { text: 'Adjust for breadth. ' }), 'Each extra chain adds 3%, up to five extra chains: more places to farm, and more venues that would want the token.')
@@ -497,12 +503,14 @@
 
   function modelPanel() {
     var m = DATA.model;
+    var cal = DATA.calibration || { n: 0, global_multiple: 0, median_ratio: 0, categories: [], held_out: { median_log_error: 0, median_ape: 0, mean_ape: 0, baseline_median_log_error: 0, baseline_median_ape: 0, baseline_mean_ape: 0 } };
     return el('section', { class: 'panel model' },
-      el('h2', { text: 'How implied value is computed (radar-2)' }),
+      el('h2', { text: 'How implied value is computed (' + DATA.model_version + ')' }),
       el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
-        'implied = round( tvl_usd x ' + m.base_multiple + ' x (1 + ' + m.growth_weight + ' x tanh(clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / ' + m.growth_scale + ')) x (' + m.maturity_floor + ' + ' + m.maturity_range + ' x (age / ' + m.maturity_peak_days + ') x exp(1 - age / ' + m.maturity_peak_days + ')) x (1 + ' + m.chain_step + ' x min(chains - 1, ' + m.chain_cap + ')) )'
+        'implied = round( tvl_usd x base(category) x (1 + ' + m.growth_weight + ' x tanh(clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / ' + m.growth_scale + ')) x (' + m.maturity_floor + ' + ' + m.maturity_range + ' x (age / ' + m.maturity_peak_days + ') x exp(1 - age / ' + m.maturity_peak_days + ')) x (1 + ' + m.chain_step + ' x min(chains - 1, ' + m.chain_cap + ')) )'
       ),
+      el('p', { class: 'sub', text: 'Calibration: base(category) is the geometric mean of market-cap/TVL over the ' + cal.n + ' live-token protocols in this snapshot (median ratio ' + cal.median_ratio.toFixed(2) + '\u00d7), fitted per category and shrunk toward the ' + cal.global_multiple.toFixed(2) + '\u00d7 global mean (3 pseudo-counts), clipped to [0.02, 2.00]. A category with no live sample uses the global multiple. Leave-one-out over those ' + cal.n + ' protocols: median log error ' + cal.held_out.median_log_error.toFixed(2) + ' (median APE ' + cal.held_out.median_ape.toFixed(2) + ', mean APE ' + cal.held_out.mean_ape.toFixed(2) + '), against ' + cal.held_out.baseline_median_log_error.toFixed(2) + ' (median APE ' + cal.held_out.baseline_median_ape.toFixed(2) + ', mean APE ' + cal.held_out.baseline_mean_ape.toFixed(2) + ') for a flat 0.25\u00d7.' }),
       el('p', { class: 'sub', text: 'Growth saturates: a 40% week is hot, a 4,000% week is a data spike, not forty times hotter. Maturity is a hump peaking at ' + m.maturity_peak_days + ' days, the snapshot\u2019s median pre-token age: old enough to be proven, young enough to still launch. A protocol that has run five years with no token is discounted for its age, not rewarded. Chain breadth adds 3% a chain, capped at five extra chains. An unlisted age uses ' + m.unknown_age_days + ' days. Early rows pass the watchlist\u2019s own exclusion rule: no bridges, liquid staking, CEX products, versioned pools or wrapped/staked products of tokens that already trade.' }),
       el('p', { class: 'sub', text: 'Launch readiness reads the same two figures a second way. Hot is an implied value of at least $100M, or at least $25M with 7d growth of 10% or more. Warm is an implied value of at least $10M, or 7d growth of at least 5%. Everything else is Watch. The farm plan ends on a risk note read off the protocol\u2019s own record: a growth spike, a long pre-token history, single-chain concentration, a shrinking TVL, or the ordinary reminder to keep the position small.' })
     );
@@ -519,7 +527,8 @@
     dialog.textContent = '';
     var steps = farmSteps(row);
     var m = DATA.model;
-    var base = Math.round(row.tvl_usd * m.base_multiple);
+    var rowBase = row.base_multiple == null ? m.base_multiple : row.base_multiple;
+    var base = Math.round(row.tvl_usd * rowBase);
     var band = readinessOf(row);
     dialog.appendChild(el('div', { class: 'detail-head' },
       el('div', null,
@@ -534,7 +543,7 @@
       el('h3', { text: 'Implied value' }),
       el('div', { class: 'equation' },
         el('div', null, el('span', { text: 'TVL' }), el('b', { class: 'num', text: fmtUsd(row.tvl_usd) })),
-        el('div', null, el('span', { text: 'Base (TVL x ' + m.base_multiple + ')' }), el('b', { class: 'num', text: fmtUsd(base) })),
+        el('div', null, el('span', { text: 'Base (TVL x ' + rowBase + ')' }), el('b', { class: 'num', text: fmtUsd(base) })),
         el('div', null, el('span', { text: 'Seven-day growth' }), el('b', { class: 'num', text: fmtPct(row.change_7d) })),
         el('div', null, el('span', { text: 'Growth multiplier' }), el('b', { class: 'num', text: String(row.growth_multiplier) })),
         el('div', null, el('span', { text: 'Age with no token' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),

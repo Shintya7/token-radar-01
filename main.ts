@@ -1,4 +1,4 @@
-// A working token-radar-01 entry (Node 22, standard library only), radar-2 model.
+// A working token-radar-01 entry (Node 22, standard library only), radar-3 model.
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), scores every
 // pre-token protocol with the model in lib/model.ts, writes the ranked board to /output/board.json, and
@@ -7,8 +7,9 @@
 //
 // The dashboard is a static page, no framework and no network: dashboard/index.html, dashboard/app.css
 // and dashboard/app.js read /output/data.js, which this program writes from the same board. It covers
-// the whole watchlist plus every rankable pre-token protocol below the floor, states the radar-2 model
-// (saturating growth, a token-window maturity hump, chain breadth) and gives every protocol a farm plan
+// the whole watchlist plus every rankable pre-token protocol below the floor, states the radar-3 model
+// (a base multiple fitted per category from the snapshot's own live-token protocols, saturating
+// growth, a token-window maturity hump, chain breadth) and gives every protocol a farm plan
 // with chain-specific gas costs.
 //
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
@@ -45,7 +46,7 @@ const out = arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
 
 const snapshot = parseSnapshot(readFileSync(inputFile, 'utf8'));
 const { board, radar } = buildRadar(snapshot);
-// radar-2's own guard, on top of the gate's: every row must name a protocol the snapshot carries,
+// radar-3's own guard, on top of the gate's: every row must name a protocol the snapshot carries,
 // so a scoring bug can never invent a row the dashboard then shows.
 const known = new Set(snapshot.protocols.map((p) => p.slug));
 const invented = board.filter((r) => !known.has(r.slug));
@@ -79,6 +80,10 @@ function copyFiles(from: string, to: string): string[] {
 }
 
 copyFiles(join(here, 'dashboard'), join(out, 'dashboard'));
+// The calibration summary, written into the dashboard tree before the dossier is built, so the
+// dossier's text carries the fitted multiples and the held-out test verbatim (data.js sits beside
+// the dashboard, not in it, so the dossier would not otherwise show the numbers).
+writeFileSync(join(out, 'dashboard', 'calibration.json'), `${JSON.stringify(radar.calibration, null, 2)}\n`);
 const shots = copyFiles(join(here, 'screenshots'), join(out, 'screenshots'));
 if (shots.length < 3) {
   process.stderr.write(`token radar: screenshots/ holds ${shots.length} image${shots.length === 1 ? '' : 's'}: hand in 3, the board, a detail view and a filtered view\n`);
@@ -96,5 +101,5 @@ writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEX
 
 process.stdout.write(
   `token radar: ${MODEL_VERSION} model, ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
-    `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (3 files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
+    `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (4 files, incl. calibration.json), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );
